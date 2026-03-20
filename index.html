@@ -174,12 +174,13 @@ function App(){
 
   if(!usuario)return <LoginScreen onLogin={handleLogin}/>;
 
-  const todos=[...pacientes,...sinAsignar].sort((a,b)=>{
-  if(a.sector<b.sector)return -1;
-  if(a.sector>b.sector)return 1;
-  if(a.cama<b.cama)return -1;
-  if(a.cama>b.cama)return 1;
-  return 0;
+const todos=[...pacientes,...sinAsignar].sort((a,b)=>{
+  const s=a.sector.localeCompare(b.sector,"es",{sensitivity:"base"});
+  if(s!==0)return s;
+  const ca=a.cama||""; const cb=b.cama||"";
+  const na=ca.replace(/\D/g,""); const nb=cb.replace(/\D/g,"");
+  if(na&&nb)return parseInt(na)-parseInt(nb);
+  return ca.localeCompare(cb,"es",{sensitivity:"base"});
 });
   const sectoresDisp=["Todos",...new Set(todos.map(p=>p.sector).filter(Boolean))];
   const filtrados=todos.filter(p=>(sectorF==="Todos"||p.sector===sectorF)&&(sexo==="Todos"||p.sexo===sexo));
