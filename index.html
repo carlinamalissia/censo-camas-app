@@ -1,1 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Censo de Camas · Sanatorio de la Cañada</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    body{background:#f0f4f4;min-height:100vh}
+    input,select{width:100%;padding:8px 12px;border:1px solid #ccc;border-radius:8px;font-size:14px;outline:none;background:#fff;color:#333}
+    input:focus,select:focus{border-color:#00897b}
+    button{cursor:pointer;border-radius:8px;padding:8px 14px;font-size:13px;border:1px solid #ccc;background:#fff;color:#333}
+    button:disabled{opacity:.5;cursor:not-allowed}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo } = React;
+const TEAL = "#00897b";
+const API  = "https://censo-camas-backend.onrender.com";
 
+const SEX = {
+  F:{ bg:"#fce4ec", border:"#f48fb1", text:"#880e4f", dot:"#e91e63", label:"Femenino" },
+  M:{ bg:"#e3f2fd", border:"#90caf9", text:"#0d47a1", dot:"#1976d2", label:"Masculino" },
+};
+
+function fmt(d){ if(!d)return""; const[y,m,day]=d.split("-"); return`${day}/${m}/${y}`; }
+function diasHasta(fpa){
+  if(!fpa)return null;
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  return Math.round((new Date(fpa)-hoy)/86400000);
+}
+
+function AltaBadge({fpa}){
+  const d=diasHasta(fpa);
+  if(!fpa) return React.createElement("span",{style:{fontSize:11,color:"#bbb",fontStyle:"italic"}},"Sin fecha asignada");
+  if(d<0)  return React.createElement("span",{style:{fontSize:11,color:"#e53935",fontWeight:500}},`⚠ Vencida ${Math.abs(d)}d · ${fmt(fpa)}`);
+  if(d===0)return React.createElement("span",{style:{fontSize:11,color:"#1976d2",fontWeight:500}},`Alta hoy · ${fmt(fpa)}`);
+  return     React.createElement("span",{style:{fontSize:11,color:"#43a047",fontWeight:500}},`Alta en ${d}d · ${fmt(fpa)}`);
+}
+
+function PacienteCard({p}){
+  const sc=SEX[p.sexo]||SEX.M;
+  const sin=p.sector==="SIN ASIGNAR";
+  return(
+    <div style={{background:"#fff",border:`0.5px solid ${sin?"#ffcc80":sc.border}`,borderLeft:`4px solid ${sin?"#fb8c00":sc.dot}`,borderRadius:10,padding:"11px 13px"}}>
+      <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+        <div style={{width:34,height:34,borderRadius:"50%",background:sin?"#fb8c00":sc.dot,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:500,flexShrink:0}}>
+          {(p.nombre||"?").split(",")[0][0]}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",gap:6}}>
+            <div style={{minWidth:0}}>
+              <p style={{margin:"0 0 3px",fontWeight:500,fontSize:13,color:"#222"}}>{p.nombre}</p>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                <span style={{fontSize:10,padding:"1px 7px",borderRadius:99,background:sc.bg,color:sc.text,border:`1px solid ${sc.border}`}}>{sc.label}</span>
+                {sin
+                  ?<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,background:"#fff3e0",color:"#e65100",border:"1px solid #ffcc80"}}>Sin cama asignada</span>
+                  :<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,background:"#f5f5f5",color:"#555"}}>Cama {p.cama}</span>
+                }
+                {p.convenio&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,background:"#f5f5f5",color:"#777"}}>{p.convenio}</span>}
+              </div>
+            </div>
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <p style={{margin:0,fontSize:20,fontWeight:500,color:"#333",lineHeight:1}}>{p.dias}</p>
+              <p style={{margin:0,fontSize:10,color:"#888"}}>días</p>
+            </div>
+          </div>
+          {p.diag&&<p style={{margin:"5px 0 0",fontSize:11,color:"#555"}}>{p.diag}</p>}
+          <div style={{display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:4,marginTop:6,paddingTop:6,borderTop:"0.5px solid #eee"}}>
+            <span style={{fontSize:11,color:"#888"}}>Ingreso: <span style={{color:"#333",fontWeight:500}}>{fmt(p.fechaIngreso)}</span></span>
+            <AltaBadge fpa={p.fpa}/>
+          </div>
+          <p style={{margin:"3px 0 0",fontSize:10,color:TEAL}}>Nro. intern.: {p.id}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({onLogin}){
+  const[u,setU]=useState(""); const[p,setP]=useState("");
+  const[err,setErr]=useState(""); const[loading,setLoading]=useState(false);
+  const handle=async()=>{
+    if(!u||!p){setErr("Ingresá usuario y contraseña.");return;}
+    setLoading(true); setErr("");
+    try{
+      const r=await fetch(`${API}/api/login`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({usuario:u,password:p})
+      });
+      const data=await r.json();
+      if(data.ok){onLogin(u,data.cookies);}
+      else{setErr(data.error||"Credenciales incorrectas.");}
+    }catch(e){setErr("No se pudo conectar. Intentá de nuevo.");}
+    setLoading(false);
+  };
+  return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#e0f2f1",padding:"1rem"}}>
+      <div style={{background:"#fff",border:"0.5px solid #ccc",borderRadius:12,padding:"2rem",width:"100%",maxWidth:340}}>
+        <div style={{textAlign:"center",marginBottom:"1.5rem"}}>
+          <div style={{background:TEAL,borderRadius:10,width:52,height:52,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px",fontSize:26}}>🏥</div>
+          <p style={{fontWeight:500,fontSize:16,color:"#004d40"}}>Sanatorio de la Cañada</p>
+          <p style={{fontSize:12,color:"#666",marginTop:3}}>Censo de camas · acceso institucional</p>
+        </div>
+        <label style={{fontSize:12,color:"#555",display:"block",marginBottom:4}}>Usuario SDLC</label>
+        <input value={u} onChange={e=>{setU(e.target.value);setErr("");}} placeholder="usuario" style={{marginBottom:10}} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        <label style={{fontSize:12,color:"#555",display:"block",marginBottom:4,marginTop:4}}>Contraseña</label>
+        <input type="password" value={p} onChange={e=>{setP(e.target.value);setErr("");}} placeholder="••••••••" style={{marginBottom:14}} onKeyDown={e=>e.key==="Enter"&&handle()}/>
+        {err&&<p style={{fontSize:12,color:"#e53935",marginBottom:10}}>{err}</p>}
+        <button onClick={handle} disabled={loading} style={{width:"100%",background:loading?"#ccc":TEAL,color:"#fff",border:"none",padding:"10px",fontSize:14}}>
+          {loading?"Autenticando en SDLC...":"Ingresar"}
+        </button>
+        <p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:10}}>Las credenciales se verifican contra el sistema hospitalario</p>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const[usuario,setUsuario]=useState(null);
+  const[cookies,setCookies]=useState(null);
+  const[vista,setVista]=useState("pacientes");
+  const[sectorF,setSectorF]=useState("Todos");
+  const[sexo,setSexo]=useState("Todos");
+  const[pacientes,setPacientes]=useState([]);
+  const[sinAsignar,setSinAsignar]=useState([]);
+  const[sectoresPiso,setSectoresPiso]=useState([]);
+  const[loadingCenso,setLoadingCenso]=useState(false);
+  const[error,setError]=useState("");
+  const[lastUpdate,setLastUpdate]=useState(null);
+
+  const cargarCenso=async(ck)=>{
+    setLoadingCenso(true); setError("");
+    try{
+      const[rC,rP]=await Promise.all([
+        fetch(`${API}/api/censo`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookies:ck})}),
+        fetch(`${API}/api/censo-piso`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookies:ck})})
+      ]);
+      const[dC,dP]=await Promise.all([rC.json(),rP.json()]);
+      if(dC.ok){setPacientes(dC.pacientes||[]);setSinAsignar(dC.sinAsignar||[]);}
+      else setError(dC.error||"Error al cargar censo.");
+      if(dP.ok)setSectoresPiso(dP.sectores||[]);
+      setLastUpdate(new Date());
+    }catch(e){setError("Error de conexión.");}
+    setLoadingCenso(false);
+  };
+
+  const handleLogin=(u,ck)=>{setUsuario(u);setCookies(ck);cargarCenso(ck);};
+  const actualizar=()=>{if(cookies)cargarCenso(cookies);};
+  const salir=()=>{setUsuario(null);setCookies(null);setPacientes([]);setSinAsignar([]);setSectoresPiso([]);};
+
+  if(!usuario)return <LoginScreen onLogin={handleLogin}/>;
+
+  const todos=[...pacientes,...sinAsignar];
+  const sectoresDisp=["Todos",...new Set(todos.map(p=>p.sector))];
+  const filtrados=todos.filter(p=>(sectorF==="Todos"||p.sector===sectorF)&&(sexo==="Todos"||p.sexo===sexo));
+  const totalOcup=todos.length;
+  const totalLibres=sectoresPiso.reduce((a,s)=>a+s.libres,0);
+  const sinFpa=todos.filter(p=>!p.fpa).length;
+  const sinAsignarCount=sinAsignar.length;
+
+  const renderLista=()=>{
+    const items=[]; const visto=new Set();
+    filtrados.forEach(p=>{
+      if(p.sector&&p.sector.includes("PISO")&&p.ambiente&&p.ambiente!=="SIN ASIGNAR"&&p.sector!=="SIN ASIGNAR"){
+        if(!visto.has(p.ambiente)){
+          visto.add(p.ambiente);
+          const grupo=filtrados.filter(x=>x.sector===p.sector&&x.ambiente===p.ambiente);
+          items.push(
+            <div key={`hab-${p.ambiente}`} style={{background:"#fff",border:"0.5px solid #b2dfdb",borderRadius:10,overflow:"hidden"}}>
+              <div style={{background:"#e0f2f1",padding:"5px 14px",borderBottom:"0.5px solid #b2dfdb",display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontSize:11,fontWeight:500,color:"#004d40"}}>{p.ambiente}</span>
+                <span style={{fontSize:10,color:"#555"}}>{grupo.length} cama{grupo.length!==1?"s":""}</span>
+              </div>
+              {grupo.map((px,j)=><div key={px.id} style={{borderTop:j>0?"0.5px solid #eee":undefined}}><PacienteCard p={px}/></div>)}
+            </div>
+          );
+        }
+      } else {
+        items.push(<PacienteCard key={p.id} p={p}/>);
+      }
+    });
+    return items;
+  };
+
+  return(
+    <div style={{background:"#f0f4f4",minHeight:"100vh"}}>
+      <div style={{background:TEAL,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
+        <div>
+          <p style={{fontWeight:500,fontSize:14,color:"#fff"}}>Censo de Camas</p>
+          <p style={{fontSize:11,color:"rgba(255,255,255,0.8)"}}>
+            {loadingCenso?"Consultando SDLC...":lastUpdate?`${lastUpdate.toLocaleDateString("es-AR")} ${lastUpdate.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"})}`:"Cargando..."}
+          </p>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={actualizar} disabled={loadingCenso} style={{fontSize:12,padding:"5px 10px",background:"rgba(255,255,255,0.2)",color:"#fff",border:"1px solid rgba(255,255,255,0.4)"}}>↻</button>
+          <button onClick={salir} style={{fontSize:12,padding:"5px 10px",background:"rgba(255,255,255,0.2)",color:"#fff",border:"1px solid rgba(255,255,255,0.4)"}}>Salir</button>
+        </div>
+      </div>
+
+      <div style={{background:"#fff",borderBottom:"0.5px solid #ddd",display:"flex"}}>
+        {[["pacientes","Pacientes"],["disponibilidad","Disponibilidad"]].map(([v,label])=>(
+          <button key={v} onClick={()=>setVista(v)} style={{flex:1,padding:"10px",fontSize:13,fontWeight:vista===v?500:400,color:vista===v?TEAL:"#666",background:"transparent",border:"none",borderBottom:vista===v?`2px solid ${TEAL}`:"2px solid transparent"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{padding:"1rem",maxWidth:900,margin:"0 auto"}}>
+        {error&&<div style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:8,padding:"10px 14px",marginBottom:"1rem",fontSize:13,color:"#c62828"}}>{error}</div>}
+
+        {loadingCenso&&(
+          <div style={{textAlign:"center",padding:"3rem 0",color:"#888"}}>
+            <p style={{fontSize:14}}>Consultando SDLC...</p>
+            <p style={{fontSize:12,marginTop:8}}>Puede tardar hasta 30 segundos la primera vez</p>
+          </div>
+        )}
+
+        {!loadingCenso&&vista==="disponibilidad"&&(
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:"1rem"}}>
+              {[["Total internados",totalOcup],["Camas libres",totalLibres],["Sin asignar",sinAsignarCount],["Sin fecha alta",sinFpa]].map(([l,v])=>(
+                <div key={l} style={{background:"#fff",borderRadius:8,padding:"10px 12px",border:"0.5px solid #ddd"}}>
+                  <p style={{fontSize:11,color:"#888",marginBottom:2}}>{l}</p>
+                  <p style={{fontSize:22,fontWeight:500,color:"#222"}}>{v}</p>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:8}}>
+              {sectoresPiso.map(s=>{
+                const pct=s.totales>0?Math.round((s.ocupadas/s.totales)*100):100;
+                const col=pct>=90?"#e53935":pct>=70?"#fb8c00":"#43a047";
+                return(
+                  <div key={s.sector} style={{background:"#fff",border:"0.5px solid #ddd",borderLeft:`3px solid ${col}`,borderRadius:10,padding:"12px 14px"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                      <div>
+                        <p style={{fontSize:12,fontWeight:500,color:"#222"}}>{s.sector}</p>
+                        <p style={{fontSize:10,color:"#888"}}>{s.servicio}</p>
+                      </div>
+                      <span style={{width:7,height:7,borderRadius:"50%",background:"#e53935",display:"inline-block",marginTop:3}}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                      {[["Ocupadas",s.ocupadas,"#e53935"],["Libres",s.libres,"#43a047"]].map(([l,v,c])=>(
+                        <div key={l} style={{background:"#f9f9f9",borderRadius:6,padding:"5px 4px",textAlign:"center"}}>
+                          <p style={{fontSize:18,fontWeight:500,color:c}}>{v}</p>
+                          <p style={{fontSize:9,color:"#888"}}>{l}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#888",marginBottom:3}}>
+                      <span>Total {s.totales}</span><span>{pct}%</span>
+                    </div>
+                    <div style={{height:4,background:"#eee",borderRadius:2,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:2}}/>
+                    </div>
+                  </div>
+                );
+              })}
+              {sinAsignarCount>0&&(
+                <div style={{background:"#fff",border:"0.5px solid #ffcc80",borderLeft:"3px solid #fb8c00",borderRadius:10,padding:"12px 14px"}}>
+                  <p style={{fontSize:12,fontWeight:500,color:"#222",marginBottom:8}}>SIN ASIGNAR</p>
+                  <div style={{background:"#fff3e0",borderRadius:6,padding:"8px",textAlign:"center"}}>
+                    <p style={{fontSize:22,fontWeight:500,color:"#e65100"}}>{sinAsignarCount}</p>
+                    <p style={{fontSize:10,color:"#bf360c"}}>internado{sinAsignarCount!==1?"s":""} sin cama</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {!loadingCenso&&vista==="pacientes"&&(
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:"1rem"}}>
+              {[["Internados",totalOcup],["Sin fecha alta",sinFpa],["Sin asignar",sinAsignarCount]].map(([l,v])=>(
+                <div key={l} style={{background:"#fff",borderRadius:8,padding:"10px 12px",border:"0.5px solid #ddd"}}>
+                  <p style={{fontSize:11,color:"#888",marginBottom:2}}>{l}</p>
+                  <p style={{fontSize:22,fontWeight:500,color:"#222"}}>{v}</p>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:6,marginBottom:"0.75rem",flexWrap:"wrap",alignItems:"center"}}>
+              <select value={sectorF} onChange={e=>setSectorF(e.target.value)} style={{flex:1,minWidth:140,fontSize:12}}>
+                {sectoresDisp.map(s=><option key={s}>{s}</option>)}
+              </select>
+              {["Todos","F","M"].map(s=>(
+                <button key={s} onClick={()=>setSexo(s)} style={{fontSize:12,padding:"5px 11px",borderRadius:20,background:sexo===s?(s==="F"?"#fce4ec":s==="M"?"#e3f2fd":"#e0f2f1"):"transparent",border:`1px solid ${sexo===s?(s==="F"?"#f48fb1":s==="M"?"#90caf9":"#80cbc4"):"#ccc"}`,color:s==="F"?"#880e4f":s==="M"?"#0d47a1":"#333"}}>
+                  {s==="Todos"?"Todos":s==="F"?"● F":"● M"}
+                </button>
+              ))}
+              <span style={{fontSize:11,color:"#888",marginLeft:"auto"}}>{filtrados.length} pac.</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {filtrados.length===0&&<p style={{textAlign:"center",color:"#aaa",fontSize:13,padding:"2rem 0"}}>No hay pacientes para mostrar</p>}
+              {renderLista()}
+            </div>
+            <div style={{display:"flex",gap:16,marginTop:"1rem",justifyContent:"center",paddingBottom:"1rem"}}>
+              <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#666"}}><span style={{width:10,height:10,borderRadius:"50%",background:"#e91e63",display:"inline-block"}}/>Femenino</span>
+              <span style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#666"}}><span style={{width:10,height:10,borderRadius:"50%",background:"#1976d2",display:"inline-block"}}/>Masculino</span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
