@@ -19,7 +19,7 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useMemo } = React;
+const { useState } = React;
 const TEAL = "#00897b";
 const API  = "https://censo-camas-backend-production.up.railway.app";
 
@@ -89,14 +89,17 @@ function LoginScreen({onLogin}){
     if(!u||!p){setErr("Ingresá usuario y contraseña.");return;}
     setLoading(true); setErr("");
     try{
-      const r=await fetch(`${API}/api/login`,{
+      const r=await fetch(`${API}/api/censo-completo`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({usuario:u,password:p})
       });
       const data=await r.json();
-      if(data.ok){onLogin(u,data.cookies);}
-      else{setErr(data.error||"Credenciales incorrectas.");}
+      if(data.ok){
+        onLogin(u, p, data.pacientes||[], data.sinAsignar||[], data.sectores||[]);
+      } else {
+        setErr(data.error||"Credenciales incorrectas.");
+      }
     }catch(e){setErr("No se pudo conectar. Intentá de nuevo.");}
     setLoading(false);
   };
@@ -114,7 +117,7 @@ function LoginScreen({onLogin}){
         <input type="password" value={p} onChange={e=>{setP(e.target.value);setErr("");}} placeholder="••••••••" style={{marginBottom:14}} onKeyDown={e=>e.key==="Enter"&&handle()}/>
         {err&&<p style={{fontSize:12,color:"#e53935",marginBottom:10}}>{err}</p>}
         <button onClick={handle} disabled={loading} style={{width:"100%",background:loading?"#ccc":TEAL,color:"#fff",border:"none",padding:"10px",fontSize:14}}>
-          {loading?"Autenticando en SDLC...":"Ingresar"}
+          {loading?"Consultando SDLC (puede tardar ~30s)...":"Ingresar"}
         </button>
         <p style={{fontSize:11,color:"#888",textAlign:"center",marginTop:10}}>Las credenciales se verifican contra el sistema hospitalario</p>
       </div>
@@ -124,7 +127,7 @@ function LoginScreen({onLogin}){
 
 function App(){
   const[usuario,setUsuario]=useState(null);
-  const[cookies,setCookies]=useState(null);
+  const[credenciales,setCredenciales]=useState(null);
   const[vista,setVista]=useState("pacientes");
   const[sectorF,setSectorF]=useState("Todos");
   const[sexo,setSexo]=useState("Todos");
@@ -135,30 +138,44 @@ function App(){
   const[error,setError]=useState("");
   const[lastUpdate,setLastUpdate]=useState(null);
 
-  const cargarCenso=async(ck)=>{
+  const handleLogin=(u,pw,pacs,sinAsig,sects)=>{
+    setUsuario(u);
+    setCredenciales({u,pw});
+    setPacientes(pacs);
+    setSinAsignar(sinAsig);
+    setSectoresPiso(sects);
+    setLastUpdate(new Date());
+  };
+
+  const actualizar=async()=>{
+    if(!credenciales)return;
     setLoadingCenso(true); setError("");
     try{
-      const[rC,rP]=await Promise.all([
-        fetch(`${API}/api/censo`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookies:ck})}),
-        fetch(`${API}/api/censo-piso`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cookies:ck})})
-      ]);
-      const[dC,dP]=await Promise.all([rC.json(),rP.json()]);
-      if(dC.ok){setPacientes(dC.pacientes||[]);setSinAsignar(dC.sinAsignar||[]);}
-      else setError(dC.error||"Error al cargar censo.");
-      if(dP.ok)setSectoresPiso(dP.sectores||[]);
-      setLastUpdate(new Date());
-    }catch(e){setError("Error de conexión.");}
+      const r=await fetch(`${API}/api/censo-completo`,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({usuario:credenciales.u,password:credenciales.pw})
+      });
+      const data=await r.json();
+      if(data.ok){
+        setPacientes(data.pacientes||[]);
+        setSinAsignar(data.sinAsignar||[]);
+        setSectoresPiso(data.sectores||[]);
+        setLastUpdate(new Date());
+      } else { setError(data.error||"Error al actualizar."); }
+    }catch(e){ setError("Error de conexión."); }
     setLoadingCenso(false);
   };
 
-  const handleLogin=(u,ck)=>{setUsuario(u);setCookies(ck);cargarCenso(ck);};
-  const actualizar=()=>{if(cookies)cargarCenso(cookies);};
-  const salir=()=>{setUsuario(null);setCookies(null);setPacientes([]);setSinAsignar([]);setSectoresPiso([]);};
+  const salir=()=>{
+    setUsuario(null); setCredenciales(null);
+    setPacientes([]); setSinAsignar([]); setSectoresPiso([]);
+  };
 
   if(!usuario)return <LoginScreen onLogin={handleLogin}/>;
 
   const todos=[...pacientes,...sinAsignar];
-  const sectoresDisp=["Todos",...new Set(todos.map(p=>p.sector))];
+  const sectoresDisp=["Todos",...new Set(todos.map(p=>p.sector).filter(Boolean))];
   const filtrados=todos.filter(p=>(sectorF==="Todos"||p.sector===sectorF)&&(sexo==="Todos"||p.sexo===sexo));
   const totalOcup=todos.length;
   const totalLibres=sectoresPiso.reduce((a,s)=>a+s.libres,0);
@@ -169,11 +186,11 @@ function App(){
     const items=[]; const visto=new Set();
     filtrados.forEach(p=>{
       if(p.sector&&p.sector.includes("PISO")&&p.ambiente&&p.ambiente!=="SIN ASIGNAR"&&p.sector!=="SIN ASIGNAR"){
-        if(!visto.has(p.ambiente)){
-          visto.add(p.ambiente);
+        if(!visto.has(p.sector+"_"+p.ambiente)){
+          visto.add(p.sector+"_"+p.ambiente);
           const grupo=filtrados.filter(x=>x.sector===p.sector&&x.ambiente===p.ambiente);
           items.push(
-            <div key={`hab-${p.ambiente}`} style={{background:"#fff",border:"0.5px solid #b2dfdb",borderRadius:10,overflow:"hidden"}}>
+            <div key={`hab-${p.sector}-${p.ambiente}`} style={{background:"#fff",border:"0.5px solid #b2dfdb",borderRadius:10,overflow:"hidden"}}>
               <div style={{background:"#e0f2f1",padding:"5px 14px",borderBottom:"0.5px solid #b2dfdb",display:"flex",justifyContent:"space-between"}}>
                 <span style={{fontSize:11,fontWeight:500,color:"#004d40"}}>{p.ambiente}</span>
                 <span style={{fontSize:10,color:"#555"}}>{grupo.length} cama{grupo.length!==1?"s":""}</span>
@@ -195,7 +212,7 @@ function App(){
         <div>
           <p style={{fontWeight:500,fontSize:14,color:"#fff"}}>Censo de Camas</p>
           <p style={{fontSize:11,color:"rgba(255,255,255,0.8)"}}>
-            {loadingCenso?"Consultando SDLC...":lastUpdate?`${lastUpdate.toLocaleDateString("es-AR")} ${lastUpdate.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"})}`:"Cargando..."}
+            {loadingCenso?"Consultando SDLC...":lastUpdate?`${lastUpdate.toLocaleDateString("es-AR")} ${lastUpdate.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"})}`:""}
           </p>
         </div>
         <div style={{display:"flex",gap:6}}>
@@ -218,7 +235,7 @@ function App(){
         {loadingCenso&&(
           <div style={{textAlign:"center",padding:"3rem 0",color:"#888"}}>
             <p style={{fontSize:14}}>Consultando SDLC...</p>
-            <p style={{fontSize:12,marginTop:8}}>Puede tardar hasta 30 segundos la primera vez</p>
+            <p style={{fontSize:12,marginTop:8}}>Puede tardar hasta 30 segundos</p>
           </div>
         )}
 
