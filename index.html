@@ -174,7 +174,13 @@ function App(){
 
   if(!usuario)return <LoginScreen onLogin={handleLogin}/>;
 
-  const todos=[...pacientes,...sinAsignar];
+  const todos=[...pacientes,...sinAsignar].sort((a,b)=>{
+  if(a.sector<b.sector)return -1;
+  if(a.sector>b.sector)return 1;
+  if(a.cama<b.cama)return -1;
+  if(a.cama>b.cama)return 1;
+  return 0;
+});
   const sectoresDisp=["Todos",...new Set(todos.map(p=>p.sector).filter(Boolean))];
   const filtrados=todos.filter(p=>(sectorF==="Todos"||p.sector===sectorF)&&(sexo==="Todos"||p.sexo===sexo));
   const totalOcup=todos.length;
